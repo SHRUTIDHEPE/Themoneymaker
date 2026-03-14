@@ -3,8 +3,10 @@ from beanie import init_beanie
 import os
 from dotenv import load_dotenv
 import logging
+import certifi
+import ssl
 
-# Import your models (we'll create these next)
+# Import your models
 from models.mongo_models import User, Portfolio, StockPrice, Alert
 
 load_dotenv()
@@ -20,16 +22,39 @@ class Database:
 db = Database()
 
 async def connect_to_mongodb():
-    """Initialize MongoDB connection"""
+    """Initialize MongoDB connection with proper SSL"""
     try:
         # Get connection string from .env
         mongo_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
         db_name = os.getenv("MONGODB_DB_NAME", "moneymaker")
         
-        logger.info(f"Connecting to MongoDB: {db_name}")
+        # Mask password for logging
+        masked_url = mongo_url
+        if '@' in mongo_url:
+            parts = mongo_url.split('@')
+            credentials = parts[0].split('://')[1].split(':')
+            if len(credentials) > 1:
+                masked_url = mongo_url.replace(credentials[1], '****')
         
-        # Create Motor client
-        db.client = AsyncIOMotorClient(mongo_url)
+        logger.info(f"Connecting to MongoDB: {db_name}")
+        logger.info(f"Connection URL: {masked_url}")
+        
+        # For Windows SSL issues, try these connection options
+        client_options = {
+            "serverSelectionTimeoutMS": 30000,  # 30 seconds
+            "connectTimeoutMS": 30000,
+            "socketTimeoutMS": 30000,
+            "tls": True,
+            "tlsAllowInvalidCertificates": True,  # For development only
+            "retryWrites": True,
+        }
+        
+        # For Atlas, you might need this
+        if "mongodb+srv" in mongo_url:
+            client_options["tlsCAFile"] = certifi.where()
+        
+        # Create Motor client with options
+        db.client = AsyncIOMotorClient(mongo_url, **client_options)
         
         # Ping the database to verify connection
         await db.client.admin.command('ping')
@@ -38,12 +63,12 @@ async def connect_to_mongodb():
         # Get database
         db.database = db.client[db_name]
         
-        # Initialize Beanie ODM with all document models
+        # Initialize Beanie ODM
         await init_beanie(
             database=db.database,
             document_models=[
                 User,
-                Portfolio, 
+                Portfolio,
                 StockPrice,
                 Alert
             ]
@@ -54,6 +79,12 @@ async def connect_to_mongodb():
         
     except Exception as e:
         logger.error(f"❌ MongoDB connection failed: {e}")
+        logger.error("💡 Troubleshooting tips:")
+        logger.error("  1. Check if your IP is whitelisted in MongoDB Atlas")
+        logger.error("  2. Verify username/password in connection string")
+        logger.error("  3. Try adding '&ssl=true&tlsAllowInvalidCertificates=true' to URL")
+        logger.error("  4. Install certifi: pip install certifi")
+        logger.error("  5. Temporarily use local MongoDB for development")
         return False
 
 async def close_mongodb_connection():
