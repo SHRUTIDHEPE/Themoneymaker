@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from database.mongodb import connect_to_mongodb, close_mongodb_connection
+from routes import auth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +33,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(auth.router)
 
 @app.get("/")
 async def root():
