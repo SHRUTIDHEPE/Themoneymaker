@@ -3,24 +3,45 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 import os
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Security configuration
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing - with proper configuration
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12,  # Set explicit rounds
+)
 
 def verify_password(plain_password, hashed_password):
     """Verify a plain password against a hashed password"""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        logger.error(f"Password verification error: {e}")
+        return False
 
 def get_password_hash(password):
     """Hash a password"""
-    return pwd_context.hash(password)
+    try:
+        # Ensure password is string and encode properly
+        if isinstance(password, str):
+            password = password.encode('utf-8')
+        return pwd_context.hash(password)
+    except Exception as e:
+        logger.error(f"Password hashing error: {e}")
+        # Fallback hashing method
+        from passlib.hash import bcrypt
+        return bcrypt.hash(password)
 
 def create_access_token(data: dict):
     """Create a JWT access token"""

@@ -6,6 +6,14 @@ class UserCreate(BaseModel):
     """Schema for user registration"""
     email: EmailStr
     password: str = Field(..., min_length=6)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "email": "test@example.com",
+                "password": "password123"
+            }
+        }
 
 class UserLogin(BaseModel):
     """Schema for user login"""
@@ -20,6 +28,13 @@ class UserOut(BaseModel):
     
     class Config:
         from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": "65abc123def456...",
+                "email": "test@example.com",
+                "created_at": "2024-01-01T00:00:00"
+            }
+        }
 
 class Token(BaseModel):
     """Schema for JWT token response"""

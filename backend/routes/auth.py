@@ -2,72 +2,70 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime
 from typing import Annotated
+import logging
 
+# Make sure these imports work
 from models.mongo_models import User
 from schemas.auth import UserCreate, UserOut, Token
-from utils.auth import get_password_hash, verify_password, create_access_token, get_current_user
+from utils.auth import get_password_hash, verify_password, create_access_token
 from database.mongodb import db
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 @router.post("/register", response_model=UserOut)
 async def register(user_data: UserCreate):
     """
     Register a new user
     """
-    # Check if user already exists
-    existing_user = await User.find_one({"email": user_data.email})
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+    try:
+        logger.info(f"Registration attempt for email: {user_data.email}")
+        
+        # Check if database is connected
+        if not db.is_connected:
+            logger.error("Database is not connected")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database connection unavailable"
+            )
+        
+        # Check if user already exists
+        existing_user = await User.find_one({"email": user_data.email})
+        if existing_user:
+            logger.warning(f"Registration failed: Email {user_data.email} already exists")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+        
+        # Create new user
+        hashed_password = get_password_hash(user_data.password)
+        logger.info(f"Password hashed successfully for {user_data.email}")
+        
+        new_user = User(
+            email=user_data.email,
+            hashed_password=hashed_password,
+            created_at=datetime.utcnow()
         )
-    
-    # Create new user
-    hashed_password = get_password_hash(user_data.password)
-    new_user = User(
-        email=user_data.email,
-        hashed_password=hashed_password,
-        created_at=datetime.utcnow()
-    )
-    
-    # Save to database
-    await new_user.insert()
-    
-    return new_user
-
-@router.post("/login", response_model=Token)
-async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
-    """
-    Login and get access token
-    """
-    # Find user by email
-    user = await User.find_one({"email": form_data.username})
-    if not user:
+        
+        # Save to database
+        await new_user.insert()
+        logger.info(f"User {user_data.email} saved to database with ID: {new_user.id}")
+        
+        return new_user
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as they are
+        raise
+    except Exception as e:
+        # Log any other errors
+        logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
         )
-    
-    # Verify password
-    if not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Create access token
-    access_token = create_access_token(data={"sub": user.email})
-    
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@router.get("/me", response_model=UserOut)
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
-    """
-    Get current logged-in user information
-    """
-    return current_user
